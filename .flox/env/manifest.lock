@@ -1,0 +1,637 @@
+{
+  "lockfile-version": 1,
+  "manifest": {
+    "version": 1,
+    "install": {
+      "gum": {
+        "pkg-path": "gum"
+      },
+      "metabase": {
+        "pkg-path": "metabase"
+      },
+      "postgresql": {
+        "pkg-path": "postgresql_16"
+      }
+    },
+    "vars": {
+      "MB_ANON_TRACKING_ENABLED": "true",
+      "MB_CHECK_FOR_UPDATES": "true",
+      "PGDATABASE": "iowa_liquor_sales",
+      "PGHOSTADDR": "127.0.0.1",
+      "PGPASS": "pgpass",
+      "PGPORT": "15432",
+      "PGUSER": "pguser",
+      "README_PATH": "${FLOX_ENV_PROJECT}/README.md",
+      "README_URL": "https://raw.githubusercontent.com/barstoolbluz/metabase-postgres/main/README.md",
+      "RESOURCES_REPO": "https://raw.githubusercontent.com/barstoolbluz/metabase-postgres/.flox/cache/resources"
+    },
+    "hook": {
+      "on-activate": "\nexport PGDIR=\"$FLOX_ENV_CACHE/postgres\"\nexport PGDATA=$PGDIR/data\nexport PGHOST=$PGDIR/run\nexport PGCONFIGFILE=\"$PGDIR/postgresql.conf\"\nexport LOG_PATH=$PGHOST/LOG\nexport SESSION_SECRET=\"$USER-session-secret\"\nexport DATABASE_URL=\"postgresql:///$PGDATABASE?host=$PGHOST&port=$PGPORT\"\n\nif [[ ! -d \"$PGHOST\" ]]; then\n  mkdir -p \"$PGHOST\"\nfi\n\nif [[ ! -d \"$PGDATA\" ]]; then\n  mkdir -p \"$PGDATA\"\n  pg_initdb() {\n    initdb \"$PGDATA\" \\\n      --locale=C \\\n      --encoding=UTF8 \\\n      -A md5 \\\n      --auth=trust \\\n      --username $PGUSER \\\n      --pwfile=<(echo $PGPASS)\n  }\n  export -f pg_initdb  # This is needed for gum to be able to call function\n  if [[ \"$FLOX_ENVS_TESTING\" == \"1\" ]]; then\n    pg_initdb\n  else\n    gum spin --spinner dot --title \"Running initdb in $PGDATA\" -- bash -c pg_initdb\n  fi\n  echo \"✅ Initialize PostgreSQL ($PGDATA)\"\n\nfi\n\n\n#\nif [[ ! -f \"$PGCONFIGFILE\" ]]; then\n  tee -a $PGCONFIGFILE > /dev/null << EOF\nlisten_addresses = '$PGHOSTADDR';\nport = '$PGPORT';\nunix_socket_directories = '$PGHOST';\nunix_socket_permissions = '0700';\nEOF\n  echo \"✅ Configure PostgreSQL ($PGCONFIGFILE)\"\nfi\n\npg_ctl -D \"$PGDATA\" -w start -o \"-c unix_socket_directories=$PGHOST -c listen_addresses=$PGHOSTADDR -p $PGPORT\" > /dev/null\nif psql -lqt | cut -d \\| -f 1 | grep -qw $PGDATABASE; then\n  echo \"✅ Database '$PGDATABASE' already exists\"\nelse\n  createdb\n  echo \"✅ Database '$PGDATABASE' created\"\nfi\npg_ctl -D \"$PGDATA\" -m fast -w stop > /dev/null\n\n\n# define + create resources directory\nexport RESOURCES_DIR=\"${FLOX_ENV_CACHE}/resources\"\nmkdir -p \"$RESOURCES_DIR\"\n\n# download missing files\ndownload_if_missing() {\n    local local_path=\"$1\"\n    local remote_url=\"$2\"\n\n    if [[ ! -f \"$local_path\" ]]; then\n        mkdir -p \"$(dirname \"$local_path\")\"\n\n        if command -v curl >/dev/null 2>&1; then\n            curl -s -o \"$local_path\" \"$remote_url\" >/dev/null 2>&1 || true\n        elif command -v wget >/dev/null 2>&1; then\n            wget -q -O \"$local_path\" \"$remote_url\" >/dev/null 2>&1 || true\n        fi\n\n        # Make script executable if it's a shell script\n        if [[ \"$local_path\" == *.sh ]]; then\n            chmod +x \"$local_path\" >/dev/null 2>&1 || true\n        fi\n    fi\n}\n\n# define files that live in $FLOX_ENV_CACHE/resources/ to download\nresource_files=(\"fetch.sh\" \"populate-database.sh\" \"import.py\" \"create-schema.py\" \"schema.sql\")\n\n# download resource files if not exist\nfor file in \"${resource_files[@]}\"; do\n    download_if_missing \"${RESOURCES_DIR}/${file}\" \"${RESOURCES_REPO}/${file}\"\ndone\n\n# download README.md if it doesn't exist\ndownload_if_missing \"$README_PATH\" \"$README_URL\"\n"
+    },
+    "profile": {
+      "common": "echo \"\"\necho \"     ╔═══════════════════════════════════════════════╗\"\necho \"     ║                                               ║\"\necho \"     ║  Start PostgreSQL in the background:          ║\"\necho \"     ║  👉 flox services start                       ║\"\necho \"     ║  👉 flox activate --start-services            ║\"\necho \"     ║                                               ║\"\necho \"     ║  Try to connect to PostgreSQL:                ║\"\necho \"     ║  👉 psql                                      ║\"\necho \"     ║                                               ║\"\necho \"     ╚═══════════════════════════════════════════════╝\"\necho \"\"\n\n  echo \"Metabase URL: http://localhost:3000\"\n",
+      "bash": "alias fetch='bash \"$FLOX_ENV_CACHE/resources/fetch.sh\"'\nalias populate='bash \"$FLOX_ENV_CACHE/resources/populate-database.sh\"'\n",
+      "zsh": "fetch() { bash \"$FLOX_ENV_CACHE/resources/fetch.sh\" \"$@\" }\npopulate() { bash \"$FLOX_ENV_CACHE/resources/populate-database.sh\" \"$@\" }\n",
+      "fish": "function fetch; bash \"$FLOX_ENV_CACHE/resources/fetch.sh\" $argv; end\nfunction populate; bash \"$FLOX_ENV_CACHE/resources/populate-database.sh\" $argv; end\n"
+    },
+    "options": {
+      "systems": [
+        "aarch64-darwin",
+        "aarch64-linux",
+        "x86_64-darwin",
+        "x86_64-linux"
+      ]
+    },
+    "services": {
+      "metabase": {
+        "command": "metabase"
+      },
+      "postgres": {
+        "command": "postgres -D $PGDATA -c unix_socket_directories=$PGHOST -c listen_addresses=$PGHOSTADDR -p $PGPORT"
+      }
+    }
+  },
+  "packages": [
+    {
+      "attr_path": "gum",
+      "broken": false,
+      "derivation": "/nix/store/rxxrr9yfa40jr5a5cq67h2y05zmnhssl-gum-0.16.0.drv",
+      "description": "Tasty Bubble Gum for your shell",
+      "install_id": "gum",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "gum-0.16.0",
+      "pname": "gum",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:11:25.296962Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.16.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/i2lcxxzcaylphmmjm2nqxlywq6xzqya8-gum-0.16.0"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gum",
+      "broken": false,
+      "derivation": "/nix/store/9gjz5wb121fvffx9dilp656dll4sndm8-gum-0.16.0.drv",
+      "description": "Tasty Bubble Gum for your shell",
+      "install_id": "gum",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "gum-0.16.0",
+      "pname": "gum",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:28:04.518038Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.16.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/d3xf6ih9k89ibb1lmch962fby3q3yxnk-gum-0.16.0"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gum",
+      "broken": false,
+      "derivation": "/nix/store/mblbyi4hbklb8z8dr339a8pcgwdgy63j-gum-0.16.0.drv",
+      "description": "Tasty Bubble Gum for your shell",
+      "install_id": "gum",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "gum-0.16.0",
+      "pname": "gum",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:43:36.428316Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.16.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/rr8sls8dyy2sfaxy2nfx3bcb6a4lzzi1-gum-0.16.0"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "gum",
+      "broken": false,
+      "derivation": "/nix/store/2q8b8wv70maic58qyq6nnnqcj7xx56ma-gum-0.16.0.drv",
+      "description": "Tasty Bubble Gum for your shell",
+      "install_id": "gum",
+      "license": "MIT",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "gum-0.16.0",
+      "pname": "gum",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T02:01:53.542242Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.16.0",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/nr5f79bif524lvnd1ynlpag9bgc0ipph-gum-0.16.0"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "metabase",
+      "broken": false,
+      "derivation": "/nix/store/qc5n221c5p1fnh0viw6cam91l81j139h-metabase-0.54.1.drv",
+      "description": "Business Intelligence and Embedded Analytics tool",
+      "install_id": "metabase",
+      "license": "AGPL-3.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "metabase-0.54.1",
+      "pname": "metabase",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:11:27.041346Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.54.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/906wjdyvlw0bca7qqg8f70q216wfypyc-metabase-0.54.1"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "metabase",
+      "broken": false,
+      "derivation": "/nix/store/2v75077kb9py091w1y1am5iqk8rd7ylv-metabase-0.54.1.drv",
+      "description": "Business Intelligence and Embedded Analytics tool",
+      "install_id": "metabase",
+      "license": "AGPL-3.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "metabase-0.54.1",
+      "pname": "metabase",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:28:12.060570Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.54.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/a9as6cik04srngjxycr0zr95p919af06-metabase-0.54.1"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "metabase",
+      "broken": false,
+      "derivation": "/nix/store/86afpg35y919gdqmwj9p1x707qzmvgl4-metabase-0.54.1.drv",
+      "description": "Business Intelligence and Embedded Analytics tool",
+      "install_id": "metabase",
+      "license": "AGPL-3.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "metabase-0.54.1",
+      "pname": "metabase",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:43:38.169613Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.54.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/gfifp66i0j5anwqcvh7aa66vx40353x8-metabase-0.54.1"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "metabase",
+      "broken": false,
+      "derivation": "/nix/store/b89nngjcq94lxsx55jii01c9fvdqrlw8-metabase-0.54.1.drv",
+      "description": "Business Intelligence and Embedded Analytics tool",
+      "install_id": "metabase",
+      "license": "AGPL-3.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "metabase-0.54.1",
+      "pname": "metabase",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T02:02:02.593215Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "0.54.1",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/cqi63h4kgkpmyby4shw2s8gh6ssavlfr-metabase-0.54.1"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "postgresql_16",
+      "broken": false,
+      "derivation": "/nix/store/yfqmypzdsnqkmczliw2ipdr5ngg4rgph-postgresql-16.8.drv",
+      "description": "Powerful, open source object-relational database system",
+      "install_id": "postgresql",
+      "license": "PostgreSQL",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "postgresql-16.8",
+      "pname": "postgresql_16",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:11:33.189142Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "16.8",
+      "outputs_to_install": [
+        "man",
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/7z5hqwanb711yczx9935yrzgjv5dbmj6-postgresql-16.8-dev",
+        "doc": "/nix/store/jg0bclqwibzlrdmsj52ah4v1y2ppb7mh-postgresql-16.8-doc",
+        "lib": "/nix/store/4ca56wj29wdv5v9zxxqj0jygy31cp4rs-postgresql-16.8-lib",
+        "man": "/nix/store/7pss89afl78q9klixjwxqw656pqmypjb-postgresql-16.8-man",
+        "out": "/nix/store/fp5k5kkfaay7v7pl5dywg9mj6cpkhl00-postgresql-16.8"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "postgresql_16",
+      "broken": false,
+      "derivation": "/nix/store/w1ckq6l7a3f1w76qrss202vn584j141n-postgresql-16.8.drv",
+      "description": "Powerful, open source object-relational database system",
+      "install_id": "postgresql",
+      "license": "PostgreSQL",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "postgresql-16.8",
+      "pname": "postgresql_16",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:28:23.769706Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "16.8",
+      "outputs_to_install": [
+        "man",
+        "out"
+      ],
+      "outputs": {
+        "debug": "/nix/store/ivic1rcg377nlwjjk77p2h7qp7kfpwm2-postgresql-16.8-debug",
+        "dev": "/nix/store/7ir6wrz0yygdw3f1y3lnasqpjpflhznz-postgresql-16.8-dev",
+        "doc": "/nix/store/9aibzagqxdyd8406mvwhyvdc63cvy06j-postgresql-16.8-doc",
+        "lib": "/nix/store/fq0lxzn3ypkls4hy6p8cpw289ghn39q6-postgresql-16.8-lib",
+        "man": "/nix/store/ssyclwsmg6gzhp34bnvq79xh86skxh7q-postgresql-16.8-man",
+        "out": "/nix/store/s7brpp2msq9xxzgjwkanmmy9vw5y8wb3-postgresql-16.8"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "postgresql_16",
+      "broken": false,
+      "derivation": "/nix/store/va5lji1fm45l4vfckqg987ffqn6cffni-postgresql-16.8.drv",
+      "description": "Powerful, open source object-relational database system",
+      "install_id": "postgresql",
+      "license": "PostgreSQL",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "postgresql-16.8",
+      "pname": "postgresql_16",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T01:43:44.467197Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "16.8",
+      "outputs_to_install": [
+        "man",
+        "out"
+      ],
+      "outputs": {
+        "dev": "/nix/store/iish903dyipwf32yz5432kfcx7sr5fsi-postgresql-16.8-dev",
+        "doc": "/nix/store/svgkjc5hd30a2f3kbngxwgh26gcni68f-postgresql-16.8-doc",
+        "lib": "/nix/store/ljalwbqqf2piv3wqbldbj22klihzy0yc-postgresql-16.8-lib",
+        "man": "/nix/store/92vnfw71j5qpmjlrf6lf232j9rm0c3pg-postgresql-16.8-man",
+        "out": "/nix/store/vfnkcln7f8adik8b890djjsmvy71va4m-postgresql-16.8"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "postgresql_16",
+      "broken": false,
+      "derivation": "/nix/store/na86m88nwqmkbpz2y2qh9d2pk1bnkf4g-postgresql-16.8.drv",
+      "description": "Powerful, open source object-relational database system",
+      "install_id": "postgresql",
+      "license": "PostgreSQL",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "name": "postgresql-16.8",
+      "pname": "postgresql_16",
+      "rev": "2631b0b7abcea6e640ce31cd78ea58910d31e650",
+      "rev_count": 782401,
+      "rev_date": "2025-04-12T13:19:24Z",
+      "scrape_date": "2025-04-14T02:02:15.362072Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "16.8",
+      "outputs_to_install": [
+        "man",
+        "out"
+      ],
+      "outputs": {
+        "debug": "/nix/store/33wv1fbmrbyv4603j38x84phz83rk54f-postgresql-16.8-debug",
+        "dev": "/nix/store/sj080b094cawp8sy9d8zp610sjwkssad-postgresql-16.8-dev",
+        "doc": "/nix/store/y5wd03jz8jpnfc12micgjz3s7m71jd2r-postgresql-16.8-doc",
+        "lib": "/nix/store/15b2djb8n80xgwczgyclvk3baxc77f8s-postgresql-16.8-lib",
+        "man": "/nix/store/1qnxz8kyrnbx1fzcpmfy82lxk3ir4wkq-postgresql-16.8-man",
+        "out": "/nix/store/l9d9630186hr27j91m4w85gx9vm0y3pb-postgresql-16.8"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    }
+  ],
+  "compose": {
+    "composer": {
+      "version": 1,
+      "vars": {
+        "PGDATABASE": "iowa_liquor_sales",
+        "PGHOSTADDR": "127.0.0.1",
+        "PGPASS": "pgpass",
+        "PGPORT": "15432",
+        "PGUSER": "pguser",
+        "README_PATH": "${FLOX_ENV_PROJECT}/README.md",
+        "README_URL": "https://raw.githubusercontent.com/barstoolbluz/metabase-postgres/main/README.md",
+        "RESOURCES_REPO": "https://raw.githubusercontent.com/barstoolbluz/metabase-postgres/.flox/cache/resources"
+      },
+      "hook": {
+        "on-activate": "# define + create resources directory\nexport RESOURCES_DIR=\"${FLOX_ENV_CACHE}/resources\"\nmkdir -p \"$RESOURCES_DIR\"\n\n# download missing files\ndownload_if_missing() {\n    local local_path=\"$1\"\n    local remote_url=\"$2\"\n\n    if [[ ! -f \"$local_path\" ]]; then\n        mkdir -p \"$(dirname \"$local_path\")\"\n\n        if command -v curl >/dev/null 2>&1; then\n            curl -s -o \"$local_path\" \"$remote_url\" >/dev/null 2>&1 || true\n        elif command -v wget >/dev/null 2>&1; then\n            wget -q -O \"$local_path\" \"$remote_url\" >/dev/null 2>&1 || true\n        fi\n\n        # Make script executable if it's a shell script\n        if [[ \"$local_path\" == *.sh ]]; then\n            chmod +x \"$local_path\" >/dev/null 2>&1 || true\n        fi\n    fi\n}\n\n# define files that live in $FLOX_ENV_CACHE/resources/ to download\nresource_files=(\"fetch.sh\" \"populate-database.sh\" \"import.py\" \"create-schema.py\" \"schema.sql\")\n\n# download resource files if not exist\nfor file in \"${resource_files[@]}\"; do\n    download_if_missing \"${RESOURCES_DIR}/${file}\" \"${RESOURCES_REPO}/${file}\"\ndone\n\n# download README.md if it doesn't exist\ndownload_if_missing \"$README_PATH\" \"$README_URL\"\n"
+      },
+      "profile": {
+        "bash": "alias fetch='bash \"$FLOX_ENV_CACHE/resources/fetch.sh\"'\nalias populate='bash \"$FLOX_ENV_CACHE/resources/populate-database.sh\"'\n",
+        "zsh": "fetch() { bash \"$FLOX_ENV_CACHE/resources/fetch.sh\" \"$@\" }\npopulate() { bash \"$FLOX_ENV_CACHE/resources/populate-database.sh\" \"$@\" }\n",
+        "fish": "function fetch; bash \"$FLOX_ENV_CACHE/resources/fetch.sh\" $argv; end\nfunction populate; bash \"$FLOX_ENV_CACHE/resources/populate-database.sh\" $argv; end\n"
+      },
+      "options": {
+        "systems": [
+          "aarch64-darwin",
+          "aarch64-linux",
+          "x86_64-darwin",
+          "x86_64-linux"
+        ]
+      },
+      "services": {
+        "metabase": {
+          "command": "metabase"
+        },
+        "postgres": {
+          "command": "postgres -D $PGDATA -c unix_socket_directories=$PGHOST -c listen_addresses=$PGHOSTADDR -p $PGPORT"
+        }
+      },
+      "include": {
+        "environments": [
+          {
+            "remote": "flox/postgres"
+          },
+          {
+            "remote": "flox/metabase"
+          }
+        ]
+      }
+    },
+    "include": [
+      {
+        "manifest": {
+          "version": 1,
+          "install": {
+            "gum": {
+              "pkg-path": "gum"
+            },
+            "postgresql": {
+              "pkg-path": "postgresql_16"
+            }
+          },
+          "vars": {
+            "PGDATABASE": "pgdb",
+            "PGHOSTADDR": "127.0.0.1",
+            "PGPASS": "pgpass",
+            "PGPORT": "15432",
+            "PGUSER": "pguser"
+          },
+          "hook": {
+            "on-activate": "\nexport PGDIR=\"$FLOX_ENV_CACHE/postgres\"\nexport PGDATA=$PGDIR/data\nexport PGHOST=$PGDIR/run\nexport PGCONFIGFILE=\"$PGDIR/postgresql.conf\"\nexport LOG_PATH=$PGHOST/LOG\nexport SESSION_SECRET=\"$USER-session-secret\"\nexport DATABASE_URL=\"postgresql:///$PGDATABASE?host=$PGHOST&port=$PGPORT\"\n\nif [[ ! -d \"$PGHOST\" ]]; then\n  mkdir -p \"$PGHOST\"\nfi\n\nif [[ ! -d \"$PGDATA\" ]]; then\n  mkdir -p \"$PGDATA\"\n  pg_initdb() {\n    initdb \"$PGDATA\" \\\n      --locale=C \\\n      --encoding=UTF8 \\\n      -A md5 \\\n      --auth=trust \\\n      --username $PGUSER \\\n      --pwfile=<(echo $PGPASS)\n  }\n  export -f pg_initdb  # This is needed for gum to be able to call function\n  if [[ \"$FLOX_ENVS_TESTING\" == \"1\" ]]; then\n    pg_initdb\n  else\n    gum spin --spinner dot --title \"Running initdb in $PGDATA\" -- bash -c pg_initdb\n  fi\n  echo \"✅ Initialize PostgreSQL ($PGDATA)\"\n\nfi\n\n\n#\nif [[ ! -f \"$PGCONFIGFILE\" ]]; then\n  tee -a $PGCONFIGFILE > /dev/null << EOF\nlisten_addresses = '$PGHOSTADDR';\nport = '$PGPORT';\nunix_socket_directories = '$PGHOST';\nunix_socket_permissions = '0700';\nEOF\n  echo \"✅ Configure PostgreSQL ($PGCONFIGFILE)\"\nfi\n\npg_ctl -D \"$PGDATA\" -w start -o \"-c unix_socket_directories=$PGHOST -c listen_addresses=$PGHOSTADDR -p $PGPORT\" > /dev/null\nif psql -lqt | cut -d \\| -f 1 | grep -qw $PGDATABASE; then\n  echo \"✅ Database '$PGDATABASE' already exists\"\nelse\n  createdb\n  echo \"✅ Database '$PGDATABASE' created\"\nfi\npg_ctl -D \"$PGDATA\" -m fast -w stop > /dev/null\n\n"
+          },
+          "profile": {
+            "common": "echo \"\"\necho \"     ╔═══════════════════════════════════════════════╗\"\necho \"     ║                                               ║\"\necho \"     ║  Start PostgreSQL in the background:          ║\"\necho \"     ║  👉 flox services start                       ║\"\necho \"     ║  👉 flox activate --start-services            ║\"\necho \"     ║                                               ║\"\necho \"     ║  Try to connect to PostgreSQL:                ║\"\necho \"     ║  👉 psql                                      ║\"\necho \"     ║                                               ║\"\necho \"     ╚═══════════════════════════════════════════════╝\"\necho \"\"\n"
+          },
+          "options": {
+            "systems": [
+              "aarch64-darwin",
+              "aarch64-linux",
+              "x86_64-darwin",
+              "x86_64-linux"
+            ]
+          },
+          "services": {
+            "postgres": {
+              "command": "postgres -D $PGDATA -c unix_socket_directories=$PGHOST -c listen_addresses=$PGHOSTADDR -p $PGPORT"
+            }
+          }
+        },
+        "name": "postgres",
+        "descriptor": {
+          "remote": "flox/postgres"
+        }
+      },
+      {
+        "manifest": {
+          "version": 1,
+          "install": {
+            "metabase": {
+              "pkg-path": "metabase"
+            }
+          },
+          "vars": {
+            "MB_ANON_TRACKING_ENABLED": "true",
+            "MB_CHECK_FOR_UPDATES": "true"
+          },
+          "profile": {
+            "common": "  echo \"Metabase URL: http://localhost:3000\"\n"
+          },
+          "options": {
+            "systems": [
+              "aarch64-darwin",
+              "aarch64-linux",
+              "x86_64-darwin",
+              "x86_64-linux"
+            ]
+          },
+          "services": {
+            "metabase": {
+              "command": "metabase"
+            }
+          }
+        },
+        "name": "metabase",
+        "descriptor": {
+          "remote": "flox/metabase"
+        }
+      }
+    ],
+    "warnings": [
+      {
+        "warning": {
+          "Overriding": [
+            "options",
+            "systems"
+          ]
+        },
+        "higher_priority_name": "metabase"
+      },
+      {
+        "warning": {
+          "Overriding": [
+            "vars",
+            "PGDATABASE"
+          ]
+        },
+        "higher_priority_name": "Current manifest"
+      },
+      {
+        "warning": {
+          "Overriding": [
+            "vars",
+            "PGHOSTADDR"
+          ]
+        },
+        "higher_priority_name": "Current manifest"
+      },
+      {
+        "warning": {
+          "Overriding": [
+            "vars",
+            "PGPASS"
+          ]
+        },
+        "higher_priority_name": "Current manifest"
+      },
+      {
+        "warning": {
+          "Overriding": [
+            "vars",
+            "PGPORT"
+          ]
+        },
+        "higher_priority_name": "Current manifest"
+      },
+      {
+        "warning": {
+          "Overriding": [
+            "vars",
+            "PGUSER"
+          ]
+        },
+        "higher_priority_name": "Current manifest"
+      },
+      {
+        "warning": {
+          "Overriding": [
+            "options",
+            "systems"
+          ]
+        },
+        "higher_priority_name": "Current manifest"
+      },
+      {
+        "warning": {
+          "Overriding": [
+            "services",
+            "metabase"
+          ]
+        },
+        "higher_priority_name": "Current manifest"
+      },
+      {
+        "warning": {
+          "Overriding": [
+            "services",
+            "postgres"
+          ]
+        },
+        "higher_priority_name": "Current manifest"
+      }
+    ]
+  }
+}

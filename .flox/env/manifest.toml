@@ -1,0 +1,89 @@
+# Flox manifest version managed by Flox CLI
+version = 1
+
+[install]
+
+[vars]
+PGHOSTADDR = "127.0.0.1"
+PGPORT = "15432"
+PGUSER = "pguser"
+PGPASS = "pgpass"
+PGDATABASE = "iowa_liquor_sales"
+
+# github repo for this environment
+README_PATH="${FLOX_ENV_PROJECT}/README.md"
+README_URL="https://raw.githubusercontent.com/barstoolbluz/metabase-postgres/main/README.md"
+RESOURCES_REPO="https://raw.githubusercontent.com/barstoolbluz/metabase-postgres/.flox/cache/resources"
+
+[include]
+environments = [
+    { remote = "flox/postgres" },
+    { remote = "flox/metabase" }
+]
+
+[hook]
+on-activate = '''
+# define + create resources directory
+export RESOURCES_DIR="${FLOX_ENV_CACHE}/resources"
+mkdir -p "$RESOURCES_DIR"
+
+# download missing files
+download_if_missing() {
+    local local_path="$1"
+    local remote_url="$2"
+
+    if [[ ! -f "$local_path" ]]; then
+        mkdir -p "$(dirname "$local_path")"
+
+        if command -v curl >/dev/null 2>&1; then
+            curl -s -o "$local_path" "$remote_url" >/dev/null 2>&1 || true
+        elif command -v wget >/dev/null 2>&1; then
+            wget -q -O "$local_path" "$remote_url" >/dev/null 2>&1 || true
+        fi
+
+        # Make script executable if it's a shell script
+        if [[ "$local_path" == *.sh ]]; then
+            chmod +x "$local_path" >/dev/null 2>&1 || true
+        fi
+    fi
+}
+
+# define files that live in $FLOX_ENV_CACHE/resources/ to download
+resource_files=("fetch.sh" "populate-database.sh" "import.py" "create-schema.py" "schema.sql")
+
+# download resource files if not exist
+for file in "${resource_files[@]}"; do
+    download_if_missing "${RESOURCES_DIR}/${file}" "${RESOURCES_REPO}/${file}"
+done
+
+# download README.md if it doesn't exist
+download_if_missing "$README_PATH" "$README_URL"
+'''
+
+[profile]
+bash = '''
+alias fetch='bash "$FLOX_ENV_CACHE/resources/fetch.sh"'
+alias populate='bash "$FLOX_ENV_CACHE/resources/populate-database.sh"'
+'''
+
+zsh = '''
+fetch() { bash "$FLOX_ENV_CACHE/resources/fetch.sh" "$@" }
+populate() { bash "$FLOX_ENV_CACHE/resources/populate-database.sh" "$@" }
+'''
+
+fish = '''
+function fetch; bash "$FLOX_ENV_CACHE/resources/fetch.sh" $argv; end
+function populate; bash "$FLOX_ENV_CACHE/resources/populate-database.sh" $argv; end
+'''
+
+[services]
+postgres.command = "postgres -D $PGDATA -c unix_socket_directories=$PGHOST -c listen_addresses=$PGHOSTADDR -p $PGPORT"
+metabase.command = "metabase"
+
+[options]
+systems = [
+  "aarch64-darwin",
+  "aarch64-linux",
+  "x86_64-darwin",
+  "x86_64-linux",
+]
