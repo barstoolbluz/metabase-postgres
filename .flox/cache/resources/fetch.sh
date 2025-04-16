@@ -8,9 +8,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Directory setup
-DOWNLOAD_DIR="${DOWNLOAD_DIR:-$HOME/.cache/flox/downloads}"
-FILE_ID="1QnIiS70uiRtZYniw12Uh645zR7EBz2j0"
-FILENAME="postgres_sample.sql"
+DOWNLOAD_DIR="${FLOX_ENV_PROJECT:-$HOME/.cache/flox/downloads}"
+FILE_ID="1QnIiS70uiRtZYniw12Uh645zR7EBz2j0"  # Kept your original FILE_ID
+FILENAME="iowa_liquor_sales.csv"  # Changed filename
 FULL_PATH="${DOWNLOAD_DIR}/${FILENAME}"
 
 # Create download directory
@@ -73,7 +73,7 @@ echo -e "\n"
 # Check result
 if [[ -s "$FULL_PATH" ]]; then
     final_size=$(du -h "$FULL_PATH" | cut -f1)
-    echo -e "${GREEN}✓ Downloaded sample database file ($final_size)${NC}"
+    echo -e "${GREEN}✓ Downloaded Iowa liquor sales dataset ($final_size)${NC}"
     echo -e "File location: ${CYAN}$FULL_PATH${NC}"
 else
     echo -e "${RED}✗ Download failed${NC}"
